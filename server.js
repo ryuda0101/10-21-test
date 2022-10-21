@@ -1,7 +1,7 @@
 const express = require("express");
 const MongoClient = require("mongodb").MongoClient;
 const moment = require("moment");
-
+const momentTimezone = require("moment-timezone");
 
 const passport = require('passport');
 const LocalStrategy = require('passport-local').Strategy;
@@ -19,7 +19,7 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 
-MongoClient.connect("mongodb+srv://admin:qwer1234@testdb.bsly6wn.mongodb.net/?retryWrites=true&w=majority",function(err,result){
+MongoClient.connect("mongodb+srv://admin:qwer1234@testdb.g2xxxrk.mongodb.net/?retryWrites=true&w=majority",function(err,result){
     //에러가 발생했을경우 메세지 출력(선택사항)
     if(err) { return console.log(err); }
 
@@ -63,7 +63,7 @@ app.post("/add",function(req,res){
             brdtitle:req.body.title,
             brdcontext:req.body.context,
             brdauther:req.user.joinnick,
-            // brddate:한국현재시간
+            brddate:moment().tz("Asia/Seoul").format("YYYY-MM-DD HH:mm:ss")
         },function(err,result){
             db.collection("ex12_count").updateOne({name:"게시판"},{$inc:{totalBoard:1}},function(err,result){
                 res.redirect("/brdlist"); //게시글 작성 후 게시글 목록경로 요청
@@ -75,10 +75,71 @@ app.post("/add",function(req,res){
 //게시글 상세화면 get 요청  /:변수명  작명가능
 //db안에 해당 게시글번호에 맞는 데이터만 꺼내오고 ejs파일로 응답
 app.get("/brddetail/:no",function(req,res){
-    db.collection("ex12_board").findOne({brdid:Number(req.params.no)},function(err,result){
-        res.render("brddetail",{brdData:result,userData:req.user});
+    db.collection("ex12_board").findOne({brdid:Number(req.params.no)},function(err,result1){
+        // 게시글 가져와서 → 해당 게시글 번호에 맞는 댓글들만 가져오기
+        db.collection("ex12_comment").find({comPrd:result1.brdid}).toArray(function(err,result2){
+            // 사용자에게 응답 / ejs 파일로 데이터 넘겨주기
+            // 게시글에 관련된 데이터 / 로그인한 유저정보 / 댓글에 관련된 데이터
+            res.render("brddetail",{brdData:result1, userData:req.user, commentData:result2})
+        });
+        
+        // res.render("brddetail",{brdData:result,userData:req.user});
     });
 });
+
+// 댓글 작성 후 db에 추가하는 post 요청
+app.post("/addcomment",function(req,res){
+    // 몇번 댓글인지 번호 부여하기 위한 작업
+    db.collection("ex12_count").findOne({name:"댓글"},function(err,result1){
+        // 해당 게시글의 번호값도 함께 부여해줘야 한다.
+        db.collection("ex12_board").findOne({brdid:Number(req.body.prdid)},function(err,result2){
+            // ex12_comment 에 댓글을 집어넣기
+            db.collection("ex12_comment").insertOne({
+                comNo:result1.commentCount + 1,
+                comPrd:result2.brdid,
+                comContext:req.body.comment_text,
+                comAuther:req.user.joinnick,
+                comDate:moment().tz("Asia/Seoul").format("YYYY-MM-DD HH:mm:ss")
+            },function(err,result){
+                db.collection("ex12_count").updateOne({name:"댓글"},{$inc:{commentCount:1}},function(err,result){
+                    // 상세페이지에서 댓글 입력시 보내준 게시글 번호로 → 상세페이지 이동하도록 요청
+                    // res.redirect("/brddetail/" + result2.brdid);
+                    res.redirect("/brddetail/" + req.body.prdid);
+                })
+            });
+        });
+    });
+});
+
+// 댓글 수정 요청
+app.post("/updatecomment",function(req,res){
+    db.collection("ex12_comment").findOne({comNo:Number(req.body.comNo)},function(err,result1){
+        db.collection("ex12_comment").updateOne({comNo:Number(req.body.comNo)},{$set:{
+            comContext:req.body.comContext
+        }},function(err,result2){
+            res.redirect("/brddetail/" + result1.comPrd);
+        });
+    });
+});
+
+// 댓글 삭제 요청
+app.get("/deletecomment/:no",function(req,res){
+    // 해당 댓글의 게시글(부모) 번호값을 찾아온 후 댓글을 삭제하고
+    db.collection("ex12_comment").findOne({comNo:Number(req.params.no)},function(err,result1){
+        db.collection("ex12_comment").deleteOne({comNo:Number(req.params.no)},function(err,result2){
+            // 그 다음 해당 상세페이지로 다시 이동 (게시글 번호 값)!
+            // 댓 삭제 후 findOne으로 찾아온 comPrd ← 게시글(부모)의 번호
+            res.redirect("/brddetail/" + result1.comPrd);
+        });
+    });
+});
+
+
+
+
+
+
+
 
 
 //회원가입 페이지 get 요청
